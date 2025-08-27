@@ -2,6 +2,7 @@
 import Catalog from "@/components/catalog";
 import {ChartArea, Music, LogIn} from "lucide-react";
 import Image from "next/image"; // ⬅️ add this
+import Link from "next/link";
 
 // page.js (top of file)
 import { Bebas_Neue, Oswald } from "next/font/google";
@@ -64,27 +65,27 @@ export default async function Home() {
             Total vinyls:&nbsp;
             <span className="font-semibold">{totalVinyls}</span>
           </span>
-          <a
+          <Link
             href="/#"
             className="inline-flex items-center px-3 gap-2 py-1.5 rounded-xl border hover:bg-neutral-50 hover:text-black"
           >
             <Music size={16} className={""} />
             Listening Party
-          </a>
-          <a
+          </Link>
+          <Link
             href="/dashboard"
             className="inline-flex items-center px-3 gap-2 py-1.5 rounded-xl border hover:bg-neutral-50 hover:text-black"
           >
             <ChartArea size={16} className={""} />
             Dashboard
-          </a>
-          <a
+          </Link>
+          <Link
             href="/admin"
             className="inline-flex items-center px-3 gap-2 py-1.5 rounded-xl border hover:bg-neutral-50 hover:text-black"
           >
             <LogIn size={16} className={""} />
             Login
-          </a>
+          </Link>
         </div>
       </div>
 
