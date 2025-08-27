@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { Heart, Star, Search } from "lucide-react";
 
 export default function Catalog({ initialRecords = [] }) {
@@ -8,27 +9,30 @@ export default function Catalog({ initialRecords = [] }) {
   const [showFavs, setShowFavs] = useState(false);
   const [showSpecial, setShowSpecial] = useState(false);
   const [format, setFormat] = useState(""); // LP / EP / 7" / etc
-  // sort: 'artist-asc' | 'artist-desc' | 'year-asc' | 'year-desc' | 'recent'
   const [sort, setSort] = useState("artist-asc");
 
   // Selected large preview card
   const [selected, setSelected] = useState(initialRecords[0] || null);
 
-  // Distinct formats for dropdown
+  // Distinct formats for dropdown (kept if you want to re-enable later)
   const formats = useMemo(() => {
-    const s = new Set(initialRecords.map((r) => (r.format || "").trim()).filter(Boolean));
+    const s = new Set(
+      initialRecords.map((r) => (r.format || "").trim()).filter(Boolean)
+    );
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [initialRecords]);
 
-  // Read query params on mount (back-compat with old 'artist'/'year'/'recent')
+  // Read query params on mount
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     setQuery(p.get("q") || "");
     const rawSort = p.get("sort") || "artist-asc";
     const normalized =
-      rawSort === "artist" ? "artist-asc" :
-      rawSort === "year"   ? "year-asc"   :
-      ["artist-asc","artist-desc","year-asc","year-desc","recent"].includes(rawSort)
+      rawSort === "artist"
+        ? "artist-asc"
+        : rawSort === "year"
+        ? "year-asc"
+        : ["artist-asc", "artist-desc", "year-asc", "year-desc", "recent"].includes(rawSort)
         ? rawSort
         : "artist-asc";
     setSort(normalized);
@@ -86,8 +90,8 @@ export default function Catalog({ initialRecords = [] }) {
     };
     const cmpArtistDesc = (a, b) => -cmpArtistAsc(a, b);
 
-    const keyYearAsc = (v) => (Number.isFinite(+v) ? +v : Infinity);   // missing last
-    const keyYearDesc = (v) => (Number.isFinite(+v) ? +v : -Infinity); // missing last on desc
+    const keyYearAsc = (v) => (Number.isFinite(+v) ? +v : Infinity);
+    const keyYearDesc = (v) => (Number.isFinite(+v) ? +v : -Infinity);
 
     if (sort === "artist-asc") {
       arr.sort(cmpArtistAsc);
@@ -103,7 +107,7 @@ export default function Catalog({ initialRecords = [] }) {
         const b = r.updated_at ? new Date(r.updated_at).getTime() : 0;
         return Math.max(a, b);
       };
-      arr.sort((a, b) => ts(b) - ts(a)); // newest first
+      arr.sort((a, b) => ts(b) - ts(a));
     }
 
     return arr;
@@ -117,75 +121,106 @@ export default function Catalog({ initialRecords = [] }) {
     }
     const stillVisible = sorted.find((r) => r.id === selected.id);
     if (!stillVisible) {
-      setSelected(sorted[0] || null);
+      setSelected
+      (sorted[0] || null);
     }
   }, [sorted, selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-      {/* Left: Large Preview (sticky) */}
-      <div className="md:col-span-2 order-2 md:order-1">
-        <div className="sticky top-6 h-fit">
-          <div className="p-4 border rounded-2xl bg-spotify-gray">
+    <div className="grid grid-cols-1 md:grid-cols-5 gap-4 md:gap-6">
+      {/* Left: Large Preview (only sticky on md+) */}
+      <div className="md:col-span-2 order-1 md:order-1">
+        <div className="md:sticky md:top-6 md:h-fit">
+          <div className="p-3 md:p-4 border rounded-2xl bg-spotify-gray">
             {selected ? (
               <div className="space-y-3">
                 <div className="aspect-square w-full overflow-hidden rounded-2xl bg-neutral-200">
                   {selected.cover_url ? (
-                    <img
+                    <Image
                       src={selected.cover_url}
                       alt={`${selected.artist} – ${selected.album}`}
+                      width={800}
+                      height={800}
                       className="w-full h-full object-cover"
+                      priority
                     />
                   ) : (
-                    <div className="w-full h-full grid place-items-center text-neutral-500">No Cover</div>
+                    <div className="w-full h-full grid place-items-center text-neutral-500">
+                      No Cover
+                    </div>
                   )}
                 </div>
                 <div>
-                  <h1 className="text-2xl font-semibold">{selected.artist}</h1>
-                  <p className="text-lg text-spotify-secondary-gray">
+                  <h1 className="text-xl md:text-2xl font-semibold break-words">
+                    {selected.artist}
+                  </h1>
+                  <p className="text-base md:text-lg text-spotify-secondary-gray">
                     {selected.album}
                     {selected.year ? ` · ${selected.year}` : ""}
                   </p>
                 </div>
-                <div className="flex gap-3">
+                <div className="flex flex-wrap gap-3">
                   <a
-                    className="underline text-sm"
-                    href={`https://open.spotify.com/search/${encodeURIComponent(`${selected.artist} ${selected.album}`)}`}
+                    className="underline text-sm md:text-base"
+                    href={`https://open.spotify.com/search/${encodeURIComponent(
+                      `${selected.artist} ${selected.album}`
+                    )}`}
                     target="_blank"
                     rel="noreferrer"
                   >
                     Listen on Spotify
                   </a>
                   {selected.spotify_url && (
-                    <a className="underline text-sm" href={selected.spotify_url} target="_blank" rel="noreferrer">
+                    <a
+                      className="underline text-sm md:text-base"
+                      href={selected.spotify_url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
                       Direct link
                     </a>
                   )}
                 </div>
-                {selected.notes && <p className="text-sm text-neutral-600">{selected.notes}</p>}
+                {selected.notes && (
+                  <p className="text-sm md:text-base text-neutral-600 whitespace-pre-wrap break-words">
+                    {selected.notes}
+                  </p>
+                )}
               </div>
             ) : (
-              <div className="h-64 grid place-items-center text-neutral-500">Select a record</div>
+              <div className="h-48 md:h-64 grid place-items-center text-neutral-500">
+                Select a record
+              </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Right: Controls (sticky) + List (scrollable) */}
-      <div className="md:col-span-3 order-1 md:order-2 flex flex-col">
-        {/* Controls (stick to top like the preview) */}
-        <div className="sticky top-6 z-10">
+      {/* Right: Controls + List */}
+      <div className="md:col-span-3 order-2 md:order-2 flex flex-col">
+        {/* Controls (sticky only on md+) */}
+        <div className="md:sticky md:top-6 md:z-10">
           <div className="p-3 border rounded-2xl bg-spotify-gray">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               {/* Search */}
-              <div className="relative flex-1 justify-center">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-neutral-500" />
+              <div className="relative w-full">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-500" />
                 <input
                   placeholder="Search artist, album, year, notes…"
-                  className="w-full pl-8 pr-3 py-2 border rounded-xl focus:outline-none focus:ring-2 focus:ring-neutral-300"
+                  className="w-full pl-10 pr-10 py-3 md:py-2 border rounded-xl focus:outline-none focus:ring-2 focus:ring-neutral-300 text-base md:text-sm"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
+                  inputMode="search"
                 />
+                {!!query && (
+                  <button
+                    aria-label="Clear search"
+                    onClick={() => setQuery("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-sm text-neutral-600"
+                  >
+                    ×
+                  </button>
+                )}
               </div>
 
               {/* Sort + Filters */}
@@ -195,7 +230,7 @@ export default function Catalog({ initialRecords = [] }) {
                   <select
                     value={sort}
                     onChange={(e) => setSort(e.target.value)}
-                    className="border px-3 py-2 rounded-xl"
+                    className="border px-3 py-2 rounded-xl text-sm"
                   >
                     <option value="artist-asc">A–Z (Ascending)</option>
                     <option value="artist-desc">A–Z (Descending)</option>
@@ -205,12 +240,13 @@ export default function Catalog({ initialRecords = [] }) {
                   </select>
                 </label>
 
-                {/* <label className="text-sm">
+                {/* Re-enable if you want format filter back
+                <label className="text-sm">
                   Format:&nbsp;
                   <select
                     value={format}
                     onChange={(e) => setFormat(e.target.value)}
-                    className="border px-3 py-2 rounded-xl"
+                    className="border px-3 py-2 rounded-xl text-sm"
                   >
                     <option value="">All</option>
                     {formats.map((f) => (
@@ -219,11 +255,12 @@ export default function Catalog({ initialRecords = [] }) {
                       </option>
                     ))}
                   </select>
-                </label> */}
+                </label>
+                */}
 
                 <button
                   onClick={() => setShowSpecial((v) => !v)}
-                  className={`p-2 rounded-full border ${showSpecial ? "bg-yellow-100 border-yellow-300" : "bg-white"}`}
+                  className={`h-10 md:h-9 px-3 rounded-full border transition-colors ${showSpecial ? "bg-yellow-100 border-yellow-300" : "bg-white"}`}
                   title="Show special"
                   aria-pressed={showSpecial}
                 >
@@ -231,7 +268,7 @@ export default function Catalog({ initialRecords = [] }) {
                 </button>
                 <button
                   onClick={() => setShowFavs((v) => !v)}
-                  className={`p-2 rounded-full border ${showFavs ? "bg-red-100 border-red-300" : "bg-white"}`}
+                  className={`h-10 md:h-9 px-3 rounded-full border transition-colors ${showFavs ? "bg-red-100 border-red-300" : "bg-white"}`}
                   title="Show favorites"
                   aria-pressed={showFavs}
                 >
@@ -242,8 +279,8 @@ export default function Catalog({ initialRecords = [] }) {
           </div>
         </div>
 
-        {/* Scrollable List */}
-        <div className="mt-4 max-h-[55vh] overflow-y-auto pr-1 bg-main-bg">
+        {/* List: natural page scroll on mobile; scroll pane only on md+ */}
+        <div className="mt-4 md:max-h-[60vh] md:overflow-y-auto md:pr-1 bg-main-bg" role="list">
           {sorted.length === 0 ? (
             <div className="text-sm text-neutral-500">No matches.</div>
           ) : (
@@ -252,16 +289,24 @@ export default function Catalog({ initialRecords = [] }) {
                 <button
                   key={r.id}
                   onClick={() => setSelected(r)}
-                  className={`w-full text-left p-3 rounded-xl border bg-main-bg hover:bg-neutral-50 hover:text-black ${
-                    selected?.id === r.id ? "border-neutral-200" : "border-neutral-800"
-                  }`}
+                  role="listitem"
+                  className={`w-full text-left p-3 md:p-3.5 rounded-xl border bg-main-bg hover:bg-neutral-50 hover:text-black active:bg-neutral-100 min-h-16
+                    ${selected?.id === r.id ? "border-neutral-200" : "border-neutral-800"}`}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-14 h-14 rounded-lg overflow-hidden bg-neutral-200 flex-shrink-0">
-                      {r.cover_url ? <img src={r.cover_url} alt="" className="w-full h-full object-cover" /> : null}
+                    <div className="w-16 h-16 md:w-14 md:h-14 rounded-lg overflow-hidden bg-neutral-200 flex-shrink-0">
+                      {r.cover_url ? (
+                        <Image
+                          src={r.cover_url}
+                          alt=""
+                          width={128}
+                          height={128}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : null}
                     </div>
-                    <div className="flex-1">
-                      <div className="font-medium">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">
                         {r.artist} – {r.album}
                       </div>
                       <div className="text-sm text-spotify-secondary-gray flex gap-2 flex-wrap">
@@ -269,10 +314,14 @@ export default function Catalog({ initialRecords = [] }) {
                         <span>Qty: {r.quantity}</span>
                         {r.format ? <span>{r.format}</span> : null}
                         {r.is_special ? (
-                          <span className="ml-1 rounded bg-amber-100 text-amber-800 px-2 py-0.5 text-xs">Special</span>
+                          <span className="ml-1 rounded bg-amber-100 text-amber-800 px-2 py-0.5 text-xs">
+                            Special
+                          </span>
                         ) : null}
                         {r.is_favorite ? (
-                          <span className="ml-1 rounded bg-red-100 text-red-700 px-2 py-0.5 text-xs">Favorite</span>
+                          <span className="ml-1 rounded bg-red-100 text-red-700 px-2 py-0.5 text-xs">
+                            Favorite
+                          </span>
                         ) : null}
                       </div>
                     </div>
