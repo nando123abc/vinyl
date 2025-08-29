@@ -25,12 +25,13 @@
 }
 
 /* (Remove @tailwind base/components/utilities in v4) */
-
+html, body { background: var(--background); }
 body {
   background: var(--background);
   /* Use your Next font variable if you set it on <body> */
   /* font-family: var(--font-sans), system-ui, sans-serif; */
   font-family: Arial, Helvetica, sans-serif;
+  min-height: 100dvh; 
 }
 
 /* ===== Mobile width clamp & no horizontal scroll ===== */
@@ -47,7 +48,10 @@ html, body, #__next, #root {
 @supports not (overflow: clip) {
   html, body, #__next, #root { overflow-x: hidden; }
 }
-
+main {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
 /* Media that might overflow horizontally */
 img, video, canvas, svg, iframe {
   max-width: 100%;
