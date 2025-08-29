@@ -1,9 +1,9 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import {useEffect, useMemo, useState} from "react";
 import Image from "next/image";
-import { Heart, Star, Search } from "lucide-react";
+import {Heart, Star, Search} from "lucide-react";
 
-export default function Catalog({ initialRecords = [] }) {
+export default function Catalog({initialRecords = []}) {
   // Controls
   const [query, setQuery] = useState("");
   const [showFavs, setShowFavs] = useState(false);
@@ -16,9 +16,7 @@ export default function Catalog({ initialRecords = [] }) {
 
   // Distinct formats for dropdown (kept if you want to re-enable later)
   const formats = useMemo(() => {
-    const s = new Set(
-      initialRecords.map((r) => (r.format || "").trim()).filter(Boolean)
-    );
+    const s = new Set(initialRecords.map((r) => (r.format || "").trim()).filter(Boolean));
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [initialRecords]);
 
@@ -121,8 +119,7 @@ export default function Catalog({ initialRecords = [] }) {
     }
     const stillVisible = sorted.find((r) => r.id === selected.id);
     if (!stillVisible) {
-      setSelected
-      (sorted[0] || null);
+      setSelected(sorted[0] || null);
     }
   }, [sorted, selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -145,15 +142,11 @@ export default function Catalog({ initialRecords = [] }) {
                       priority
                     />
                   ) : (
-                    <div className="w-full h-full grid place-items-center text-neutral-500">
-                      No Cover
-                    </div>
+                    <div className="w-full h-full grid place-items-center text-neutral-500">No Cover</div>
                   )}
                 </div>
                 <div>
-                  <h1 className="text-xl md:text-2xl font-semibold break-words">
-                    {selected.artist}
-                  </h1>
+                  <h1 className="text-xl md:text-2xl font-semibold break-words">{selected.artist}</h1>
                   <p className="text-base md:text-lg text-spotify-secondary-gray">
                     {selected.album}
                     {selected.year ? ` · ${selected.year}` : ""}
@@ -188,9 +181,7 @@ export default function Catalog({ initialRecords = [] }) {
                 )}
               </div>
             ) : (
-              <div className="h-48 md:h-64 grid place-items-center text-neutral-500">
-                Select a record
-              </div>
+              <div className="h-48 md:h-64 grid place-items-center text-neutral-500">Select a record</div>
             )}
           </div>
         </div>
@@ -224,13 +215,15 @@ export default function Catalog({ initialRecords = [] }) {
               </div>
 
               {/* Sort + Filters */}
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="text-sm">
-                  Sort:&nbsp;
+              <div className="flex items-center gap-2 min-w-0">
+                <label className="flex-1 min-w-0">
+                  {/* Visible label only on md+; keep SR label for accessibility */}
+                  <span className="sr-only md:not-sr-only md:mr-1">Sort</span>
                   <select
                     value={sort}
                     onChange={(e) => setSort(e.target.value)}
-                    className="border px-3 py-2 rounded-xl text-sm"
+                    className="w-full border px-3 py-2 rounded-xl text-sm"
+                    aria-label="Sort records"
                   >
                     <option value="artist-asc">A–Z (Ascending)</option>
                     <option value="artist-desc">A–Z (Descending)</option>
@@ -240,40 +233,39 @@ export default function Catalog({ initialRecords = [] }) {
                   </select>
                 </label>
 
-                {/* Re-enable if you want format filter back
-                <label className="text-sm">
-                  Format:&nbsp;
-                  <select
-                    value={format}
-                    onChange={(e) => setFormat(e.target.value)}
-                    className="border px-3 py-2 rounded-xl text-sm"
-                  >
-                    <option value="">All</option>
-                    {formats.map((f) => (
-                      <option key={f} value={f}>
-                        {f}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                */}
-
+                {/* Compact icon buttons on mobile; pill buttons on md+ */}
                 <button
                   onClick={() => setShowSpecial((v) => !v)}
-                  className={`h-10 md:h-9 px-3 rounded-full border transition-colors ${showSpecial ? "bg-yellow-100 border-yellow-300" : "bg-white"}`}
                   title="Show special"
                   aria-pressed={showSpecial}
+                  className={[
+                    "shrink-0 transition-colors border rounded-full",
+                    // mobile: icon circle
+                    "h-10 w-10 grid place-items-center",
+                    // desktop: pill with text padding
+                    "md:h-9 md:w-auto md:px-3",
+                    showSpecial ? "bg-yellow-100 border-yellow-300" : "bg-white",
+                  ].join(" ")}
                 >
                   <Star className={showSpecial ? "fill-yellow-500 text-yellow-500" : "text-neutral-700"} />
+                  {/* Optional text on md+: <span className="hidden md:inline ml-2">Special</span> */}
                 </button>
+
                 <button
                   onClick={() => setShowFavs((v) => !v)}
-                  className={`h-10 md:h-9 px-3 rounded-full border transition-colors ${showFavs ? "bg-red-100 border-red-300" : "bg-white"}`}
                   title="Show favorites"
                   aria-pressed={showFavs}
+                  className={[
+                    "shrink-0 transition-colors border rounded-full",
+                    "h-10 w-10 grid place-items-center",
+                    "md:h-9 md:w-auto md:px-3",
+                    showFavs ? "bg-red-100 border-red-300" : "bg-white",
+                  ].join(" ")}
                 >
                   <Heart className={showFavs ? "fill-red-500 text-red-500" : "text-neutral-700"} />
+                  {/* Optional text on md+: <span className="hidden md:inline ml-2">Favorites</span> */}
                 </button>
+                
               </div>
             </div>
           </div>
@@ -314,14 +306,10 @@ export default function Catalog({ initialRecords = [] }) {
                         <span>Qty: {r.quantity}</span>
                         {r.format ? <span>{r.format}</span> : null}
                         {r.is_special ? (
-                          <span className="ml-1 rounded bg-amber-100 text-amber-800 px-2 py-0.5 text-xs">
-                            Special
-                          </span>
+                          <span className="ml-1 rounded bg-amber-100 text-amber-800 px-2 py-0.5 text-xs">Special</span>
                         ) : null}
                         {r.is_favorite ? (
-                          <span className="ml-1 rounded bg-red-100 text-red-700 px-2 py-0.5 text-xs">
-                            Favorite
-                          </span>
+                          <span className="ml-1 rounded bg-red-100 text-red-700 px-2 py-0.5 text-xs">Favorite</span>
                         ) : null}
                       </div>
                     </div>

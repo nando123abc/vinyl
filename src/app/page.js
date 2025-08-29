@@ -48,7 +48,7 @@ export default async function Home() {
   return (
     <main>
       {/* Simple header with total + dashboard link */}
-      <div className="max-w-6xl mx-auto px-4 pt-6 pb-15 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+      <div className="max-w-6xl mx-auto px-4 pt-6 pb-8 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
         <div className="flex items-center gap-2">
           <Image
             src="./Vinyl_Logo.svg"
@@ -65,13 +65,13 @@ export default async function Home() {
             Total vinyls:&nbsp;
             <span className="font-semibold">{totalVinyls}</span>
           </span>
-          <Link
+          {/* <Link
             href="/#"
             className="inline-flex items-center px-3 gap-2 py-1.5 rounded-xl border hover:bg-neutral-50 hover:text-black"
           >
             <Music size={16} className={""} />
             Listening Party
-          </Link>
+          </Link> */}
           <Link
             href="/dashboard"
             className="inline-flex items-center px-3 gap-2 py-1.5 rounded-xl border hover:bg-neutral-50 hover:text-black"
