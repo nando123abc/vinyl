@@ -4,16 +4,25 @@ import Image from "next/image";
 import {Heart, Star, Search} from "lucide-react";
 
 export default function Catalog({initialRecords = []}) {
+  const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+
   // Controls
-  const [query, setQuery] = useState("");
-  const [showFavs, setShowFavs] = useState(false);
-  const [showSpecial, setShowSpecial] = useState(false);
-  const [format, setFormat] = useState(""); // LP / EP / 7" / etc
-  const [genre, setGenre] = useState("");
-  const [sort, setSort] = useState("artist-asc");
+  const [query, setQuery] = useState(() => params?.get("q") || "");
+  const [showFavs, setShowFavs] = useState(() => params?.get("favs") === "1");
+  const [showSpecial, setShowSpecial] = useState(() => params?.get("special") === "1");
+  const [format, setFormat] = useState(() => params?.get("format") || ""); // LP / EP / 7" / etc
+  const [genre, setGenre] = useState(() => params?.get("genre") || "");
+  const [sort, setSort] = useState(() => {
+    const rawSort = params?.get("sort") || "artist-asc";
+    if (rawSort === "artist") return "artist-asc";
+    if (rawSort === "year") return "year-asc";
+    return ["artist-asc", "artist-desc", "year-asc", "year-desc", "recent"].includes(rawSort)
+      ? rawSort
+      : "artist-asc";
+  });
 
   // Selected large preview card
-  const [selected, setSelected] = useState(initialRecords[0] || null);
+  const [selectedId, setSelectedId] = useState(() => initialRecords[0]?.id || null);
 
   // Distinct formats for dropdown (kept if you want to re-enable later)
   const formats = useMemo(() => {
@@ -25,27 +34,6 @@ export default function Catalog({initialRecords = []}) {
     const s = new Set(initialRecords.map((r) => (r.genre || "").trim()).filter(Boolean));
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [initialRecords]);
-
-  // Read query params on mount
-  useEffect(() => {
-    const p = new URLSearchParams(window.location.search);
-    setQuery(p.get("q") || "");
-    const rawSort = p.get("sort") || "artist-asc";
-    const normalized =
-      rawSort === "artist"
-        ? "artist-asc"
-        : rawSort === "year"
-        ? "year-asc"
-        : ["artist-asc", "artist-desc", "year-asc", "year-desc", "recent"].includes(rawSort)
-        ? rawSort
-        : "artist-asc";
-    setSort(normalized);
-    setFormat(p.get("format") || "");
-    setGenre(p.get("genre") || "");
-    setShowFavs(p.get("favs") === "1");
-    setShowSpecial(p.get("special") === "1");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Write query params on control changes
   useEffect(() => {
@@ -62,22 +50,18 @@ export default function Catalog({initialRecords = []}) {
     }
   }, [query, sort, format, genre, showFavs, showSpecial]);
 
-  // Text search match
-  const matchesQuery = (r) => {
-    const q = query.trim().toLowerCase();
-    if (!q) return true;
-    return (
-      (r.artist || "").toLowerCase().includes(q) ||
-      (r.album || "").toLowerCase().includes(q) ||
-      String(r.year || "").includes(q) ||
-      (r.notes || "").toLowerCase().includes(q)
-    );
-  };
-
   // Filtering
   const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
     return initialRecords.filter((r) => {
-      if (!matchesQuery(r)) return false;
+      if (q) {
+        const queryMatch =
+          (r.artist || "").toLowerCase().includes(q) ||
+          (r.album || "").toLowerCase().includes(q) ||
+          String(r.year || "").includes(q) ||
+          (r.notes || "").toLowerCase().includes(q);
+        if (!queryMatch) return false;
+      }
       if (showFavs && !r.is_favorite) return false;
       if (showSpecial && !r.is_special) return false;
       if (format && r.format !== format) return false;
@@ -120,17 +104,9 @@ export default function Catalog({initialRecords = []}) {
     return arr;
   }, [filtered, sort]);
 
-  // Keep selected item valid as filters/sorts change
-  useEffect(() => {
-    if (!selected) {
-      setSelected(sorted[0] || null);
-      return;
-    }
-    const stillVisible = sorted.find((r) => r.id === selected.id);
-    if (!stillVisible) {
-      setSelected(sorted[0] || null);
-    }
-  }, [sorted, selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const selected = useMemo(() => {
+    return sorted.find((r) => r.id === selectedId) || sorted[0] || null;
+  }, [sorted, selectedId]);
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-5 gap-4 md:gap-6">
@@ -308,7 +284,7 @@ export default function Catalog({initialRecords = []}) {
               {sorted.map((r) => (
                 <button
                   key={r.id}
-                  onClick={() => setSelected(r)}
+                  onClick={() => setSelectedId(r.id)}
                   role="listitem"
                   className={`w-full text-left p-3 md:p-3.5 rounded-xl border bg-main-bg hover:bg-neutral-50 hover:text-black active:bg-neutral-100 min-h-16
                     ${selected?.id === r.id ? "border-neutral-200" : "border-neutral-800"}`}
