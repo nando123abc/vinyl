@@ -71,10 +71,12 @@ export default function AdminPage() {
       return;
     }
 
+    const normalizedEmail = email.trim().toLowerCase();
+
     const { data, error } = await supabase
       .from("admins")
       .select("email")
-      .eq("email", email)
+      .ilike("email", normalizedEmail)
       .maybeSingle();
 
     if (error) {
@@ -323,7 +325,17 @@ export default function AdminPage() {
 
       {isAuthed && !isAdmin && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 text-amber-900 px-4 py-3 text-sm">
-          Signed in, but this email is not in the admin allowlist. Add it to the <b>admins</b> table to enable management access.
+          <div className="font-medium">Signed in, but this email is not in the admin allowlist.</div>
+          <div className="mt-1">
+            Signed-in email detected by app: <b>{session?.user?.email || "(none)"}</b>
+          </div>
+          <div className="mt-1">Run this in the Supabase SQL editor for the same project used by Vercel:</div>
+          <pre className="mt-2 rounded-md border border-amber-300 bg-amber-100 p-2 text-xs overflow-auto">
+{`insert into public.admins (email)
+values ('${session?.user?.email || "you@example.com"}')
+on conflict (email) do nothing;`}
+          </pre>
+          <div className="mt-2">Then refresh this page.</div>
         </div>
       )}
 
