@@ -3,17 +3,29 @@ import {useEffect, useMemo, useState} from "react";
 import Image from "next/image";
 import {Heart, Star, Search} from "lucide-react";
 
-export default function Catalog({initialRecords = []}) {
-  const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+function normalizeCoverUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== "string") return null;
+  try {
+    const url = new URL(rawUrl);
+    if (url.hostname === "coverartarchive.org" && url.protocol === "http:") {
+      url.protocol = "https:";
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+export default function Catalog({initialRecords = [], initialControls = {}}) {
 
   // Controls
-  const [query, setQuery] = useState(() => params?.get("q") || "");
-  const [showFavs, setShowFavs] = useState(() => params?.get("favs") === "1");
-  const [showSpecial, setShowSpecial] = useState(() => params?.get("special") === "1");
-  const [format, setFormat] = useState(() => params?.get("format") || ""); // LP / EP / 7" / etc
-  const [genre, setGenre] = useState(() => params?.get("genre") || "");
+  const [query, setQuery] = useState(() => initialControls.q || "");
+  const [showFavs, setShowFavs] = useState(() => initialControls.favs === true);
+  const [showSpecial, setShowSpecial] = useState(() => initialControls.special === true);
+  const [format, setFormat] = useState(() => initialControls.format || ""); // LP / EP / 7" / etc
+  const [genre, setGenre] = useState(() => initialControls.genre || "");
   const [sort, setSort] = useState(() => {
-    const rawSort = params?.get("sort") || "artist-asc";
+    const rawSort = initialControls.sort || "artist-asc";
     if (rawSort === "artist") return "artist-asc";
     if (rawSort === "year") return "year-asc";
     return ["artist-asc", "artist-desc", "year-asc", "year-desc", "recent"].includes(rawSort)
@@ -23,6 +35,76 @@ export default function Catalog({initialRecords = []}) {
 
   // Selected large preview card
   const [selectedId, setSelectedId] = useState(() => initialRecords[0]?.id || null);
+  const [brokenCoverIds, setBrokenCoverIds] = useState(() => new Set());
+  const [recoveredCoverUrls, setRecoveredCoverUrls] = useState(() => new Map());
+  const [coverRecoveryTriedIds, setCoverRecoveryTriedIds] = useState(() => new Set());
+
+  const markCoverBroken = (id) => {
+    if (!id) return;
+    setBrokenCoverIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  };
+
+  const markCoverRecovered = (id, url) => {
+    if (!id || !url) return;
+    setRecoveredCoverUrls((prev) => {
+      const next = new Map(prev);
+      next.set(id, url);
+      return next;
+    });
+    setBrokenCoverIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  const getRecordCoverUrl = (record) => {
+    if (!record?.id) return null;
+    return recoveredCoverUrls.get(record.id) || normalizeCoverUrl(record.cover_url);
+  };
+
+  const recoverCoverUrl = async (record) => {
+    const id = record?.id;
+    if (!id) return;
+
+    let shouldTry = false;
+    setCoverRecoveryTriedIds((prev) => {
+      if (prev.has(id)) return prev;
+      shouldTry = true;
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+    if (!shouldTry) return;
+
+    const artist = (record.artist || "").trim();
+    const album = (record.album || "").trim();
+    if (!artist || !album) return;
+
+    try {
+      const p = new URLSearchParams({artist, album});
+      const res = await fetch(`/api/cover?${p.toString()}`);
+      if (!res.ok) return;
+      const body = await res.json().catch(() => null);
+      const candidate = normalizeCoverUrl(body?.image);
+      if (candidate) {
+        markCoverRecovered(id, candidate);
+      }
+    } catch {
+      // Keep existing fallback behavior when cover lookup fails.
+    }
+  };
+
+  const handleCoverError = (record) => {
+    markCoverBroken(record?.id);
+    void recoverCoverUrl(record);
+  };
 
   // Distinct formats for dropdown (kept if you want to re-enable later)
   const formats = useMemo(() => {
@@ -108,6 +190,9 @@ export default function Catalog({initialRecords = []}) {
     return sorted.find((r) => r.id === selectedId) || sorted[0] || null;
   }, [sorted, selectedId]);
 
+  const selectedCoverUrl = selected ? getRecordCoverUrl(selected) : null;
+  const selectedCoverBroken = !!selected?.id && brokenCoverIds.has(selected.id);
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-5 gap-4 md:gap-6">
       {/* Left: Large Preview (only sticky on md+) */}
@@ -117,14 +202,15 @@ export default function Catalog({initialRecords = []}) {
             {selected ? (
               <div className="space-y-3">
                 <div className="aspect-square w-full overflow-hidden rounded-2xl bg-neutral-200">
-                  {selected.cover_url ? (
+                  {selectedCoverUrl && !selectedCoverBroken ? (
                     <Image
-                      src={selected.cover_url}
+                      src={selectedCoverUrl}
                       alt={`${selected.artist} – ${selected.album}`}
                       width={800}
                       height={800}
                       className="w-full h-full object-cover"
                       priority
+                      onError={() => handleCoverError(selected)}
                     />
                   ) : (
                     <div className="w-full h-full grid place-items-center text-neutral-500">No Cover</div>
@@ -200,34 +286,33 @@ export default function Catalog({initialRecords = []}) {
               </div>
 
               {/* Sort + Filters */}
-              <div className="flex items-center gap-2 min-w-0">
-                <label className="flex-1 min-w-0">
-                  {/* Visible label only on md+; keep SR label for accessibility */}
-                  <span className="sr-only md:not-sr-only md:mr-1">Sort</span>
+              <div className="flex items-center gap-2 w-full md:w-auto md:flex-nowrap">
+                <label className="w-full md:w-[190px]">
+                  <span className="sr-only">Sort</span>
                   <select
                     value={sort}
                     onChange={(e) => setSort(e.target.value)}
-                    className="w-full border px-3 py-2 rounded-xl text-sm"
+                    className="w-full border px-3 py-2 rounded-xl text-sm bg-white text-neutral-900"
                     aria-label="Sort records"
                   >
-                    <option value="artist-asc">A–Z (Ascending)</option>
-                    <option value="artist-desc">A–Z (Descending)</option>
-                    <option value="year-asc">Year (Ascending)</option>
-                    <option value="year-desc">Year (Descending)</option>
+                    <option value="artist-asc">A-Z (Asc)</option>
+                    <option value="artist-desc">A-Z (Desc)</option>
+                    <option value="year-asc">Year (Asc)</option>
+                    <option value="year-desc">Year (Desc)</option>
                     <option value="recent">Recently Added</option>
                   </select>
                 </label>
 
                 {genres.length > 0 ? (
-                  <label className="flex-1 min-w-0">
+                  <label className="w-full md:w-[170px]">
                     <span className="sr-only">Genre</span>
                     <select
                       value={genre}
                       onChange={(e) => setGenre(e.target.value)}
-                      className="w-full border px-3 py-2 rounded-xl text-sm"
+                      className="w-full border px-3 py-2 rounded-xl text-sm bg-white text-neutral-900"
                       aria-label="Filter by genre"
                     >
-                      <option value="">All genres</option>
+                      <option value="">All Genres</option>
                       {genres.map((g) => (
                         <option key={g} value={g}>
                           {g}
@@ -244,9 +329,7 @@ export default function Catalog({initialRecords = []}) {
                   aria-pressed={showSpecial}
                   className={[
                     "shrink-0 transition-colors border rounded-full",
-                    // mobile: icon circle
                     "h-10 w-10 grid place-items-center",
-                    // desktop: pill with text padding
                     "md:h-9 md:w-auto md:px-3",
                     showSpecial ? "bg-yellow-100 border-yellow-300" : "bg-white",
                   ].join(" ")}
@@ -281,7 +364,9 @@ export default function Catalog({initialRecords = []}) {
             <div className="text-sm text-neutral-500">No matches.</div>
           ) : (
             <div className="space-y-2">
-              {sorted.map((r) => (
+              {sorted.map((r) => {
+                const recordCoverUrl = getRecordCoverUrl(r);
+                return (
                 <button
                   key={r.id}
                   onClick={() => setSelectedId(r.id)}
@@ -291,13 +376,14 @@ export default function Catalog({initialRecords = []}) {
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-16 h-16 md:w-14 md:h-14 rounded-lg overflow-hidden bg-neutral-200 flex-shrink-0">
-                      {r.cover_url ? (
+                      {recordCoverUrl && !brokenCoverIds.has(r.id) ? (
                         <Image
-                          src={r.cover_url}
+                          src={recordCoverUrl}
                           alt=""
                           width={128}
                           height={128}
                           className="w-full h-full object-cover"
+                          onError={() => handleCoverError(r)}
                         />
                       ) : null}
                     </div>
@@ -319,7 +405,8 @@ export default function Catalog({initialRecords = []}) {
                     </div>
                   </div>
                 </button>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

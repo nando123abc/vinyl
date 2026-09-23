@@ -12,6 +12,8 @@ export default function AdminPage() {
   const [loadError, setLoadError] = useState("");
   const [authEmail, setAuthEmail] = useState("");
   const [uiMessage, setUiMessage] = useState({ type: "", text: "" });
+  const [backfillRunning, setBackfillRunning] = useState(false);
+  const [backfillProgress, setBackfillProgress] = useState("");
   const [listQuery, setListQuery] = useState("");
   const [listGenre, setListGenre] = useState("");
   const [form, setForm] = useState({
@@ -217,6 +219,72 @@ export default function AdminPage() {
     }
   }
 
+  async function onBackfillCovers() {
+    if (backfillRunning) return;
+
+    const limit = 120;
+    const candidates = records
+      .filter((r) => (r.artist || "").trim() && (r.album || "").trim())
+      .filter((r) => !r.cover_url || String(r.cover_url).includes("coverartarchive.org"))
+      .slice(0, limit);
+
+    if (candidates.length === 0) {
+      setUiMessage({ type: "success", text: "No candidate records need cover repair right now." });
+      return;
+    }
+
+    setBackfillRunning(true);
+    setBackfillProgress(`Starting cover repair for ${candidates.length} records...`);
+
+    let scanned = 0;
+    let updated = 0;
+    let unchanged = 0;
+    let failed = 0;
+
+    for (const record of candidates) {
+      scanned += 1;
+      setBackfillProgress(`Repairing covers ${scanned}/${candidates.length}...`);
+      try {
+        const p = new URLSearchParams({
+          artist: record.artist,
+          album: record.album,
+        });
+        const res = await fetch(`/api/cover?${p.toString()}`);
+        const body = await res.json().catch(() => null);
+        const nextCoverUrl = body?.image || null;
+
+        if (!nextCoverUrl) {
+          unchanged += 1;
+          continue;
+        }
+
+        if (nextCoverUrl === (record.cover_url || null)) {
+          unchanged += 1;
+          continue;
+        }
+
+        const { error } = await supabase.from(RECORDS_TABLE).update({ cover_url: nextCoverUrl }).eq("id", record.id);
+
+        if (error) {
+          failed += 1;
+        } else {
+          updated += 1;
+        }
+      } catch {
+        failed += 1;
+      }
+    }
+
+    setBackfillRunning(false);
+    setBackfillProgress("");
+
+    await fetchRecords();
+    setUiMessage({
+      type: failed > 0 ? "error" : "success",
+      text: `Cover repair done. Scanned ${scanned}, updated ${updated}, unchanged ${unchanged}, failed ${failed}.`,
+    });
+  }
+
   async function onSubmit(e) {
     e.preventDefault();
     const payload = {
@@ -358,6 +426,21 @@ on conflict (email) do nothing;`}
               <div className="text-xs text-neutral-600">Top genre</div>
               <div className="text-sm font-semibold truncate">{adminStats.topGenre}</div>
             </div>
+          </div>
+
+          <div className="p-3 border rounded-xl bg-spotify-gray space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className="px-3 py-2 border rounded-xl"
+                onClick={onBackfillCovers}
+                disabled={backfillRunning}
+              >
+                {backfillRunning ? "Repairing covers..." : "Repair missing/legacy covers"}
+              </button>
+              <span className="text-xs text-neutral-600">Scans up to 120 records per run.</span>
+            </div>
+            {backfillProgress ? <div className="text-xs text-neutral-600">{backfillProgress}</div> : null}
           </div>
 
           <div className="grid sm:grid-cols-2 gap-3">

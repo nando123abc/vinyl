@@ -1,99 +1,145 @@
 // backfill_covers.js
-// Node 18+ (global fetch). Install: npm i @supabase/supabase-js
+// Usage examples:
+//   node backfill_covers.js
+//   COVER_LIMIT=200 node backfill_covers.js
+//   COVER_DRY_RUN=1 node backfill_covers.js
+//   COVER_INCLUDE_LEGACY=0 node backfill_covers.js
 import { createClient } from "@supabase/supabase-js";
+import { resolveCoverUrl } from "./src/lib/coverResolver.js";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY; // NEVER put this in frontend code
-const MB_CONTACT = process.env.ADMIN_EMAILS || "you@example.com";
-const UA = `vinyl-vault/1.0 (${MB_CONTACT})`;
+function parseEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return;
+  const text = fs.readFileSync(filePath, "utf8");
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    if (!key || process.env[key] != null) continue;
+    let val = trimmed.slice(eq + 1).trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    process.env[key] = val;
+  }
+}
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+parseEnvFile(path.join(__dirname, ".env.local"));
+parseEnvFile(path.join(__dirname, ".env"));
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE =
+  process.env.SUPABASE_SECRET_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE_KEY;
+const TABLE = process.env.NEXT_PUBLIC_SUPABASE_RECORDS_TABLE || "records";
+
+const LIMIT = Number(process.env.COVER_LIMIT || 300);
+const DRY_RUN = process.env.COVER_DRY_RUN === "1";
+const INCLUDE_LEGACY = process.env.COVER_INCLUDE_LEGACY !== "0";
+const DELAY_MS = Number(process.env.COVER_DELAY_MS || 250);
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) {
-  console.error("Set SUPABASE_URL and SUPABASE_SERVICE_ROLE in your env.");
+  console.error(
+    "Missing env vars. Required URL: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_URL. Required secret: SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY"
+  );
   process.exit(1);
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE);
 
-async function lookupCover(artist, album) {
-  const MB_BASE = "https://musicbrainz.org/ws/2";
-  const CAA_BASE = "https://coverartarchive.org";
-  const q = `artist:"${artist}" AND release:"${album}"`;
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-  const fetchJSON = async (url, init={}) => {
-    const res = await fetch(url, { ...init, headers: { "User-Agent": UA, ...(init.headers||{}) } });
-    if (!res.ok) return null;
-    try { return await res.json(); } catch { return null; }
-  };
+async function getCandidateRows() {
+  let query = supabase
+    .from(TABLE)
+    .select("id,artist,album,cover_url,updated_at")
+    .order("updated_at", { ascending: false })
+    .limit(LIMIT);
 
-  // 1) Release-group search
-  const rg = await fetchJSON(`${MB_BASE}/release-group/?query=${encodeURIComponent(q)}&fmt=json`);
-  const rgid = rg?.["release-groups"]?.[0]?.id;
-
-  // Try CAA at release-group
-  if (rgid) {
-    const caaRG = await fetchJSON(`${CAA_BASE}/release-group/${rgid}`);
-    const frontRG = caaRG?.images?.find(i => i.front)?.image;
-    if (frontRG) return frontRG;
-
-    // Fallback: a release under that group
-    const rels = await fetchJSON(`${MB_BASE}/release?release-group=${rgid}&fmt=json`);
-    const releaseId = rels?.releases?.[0]?.id;
-    if (releaseId) {
-      const head = await fetch(`${CAA_BASE}/release/${releaseId}/front`, { method: "HEAD" });
-      if (head.ok) return `${CAA_BASE}/release/${releaseId}/front`;
-      const caaRel = await fetchJSON(`${CAA_BASE}/release/${releaseId}`);
-      const frontRel = caaRel?.images?.find(i => i.front)?.image;
-      if (frontRel) return frontRel;
-    }
+  if (INCLUDE_LEGACY) {
+    query = query.or("cover_url.is.null,cover_url.like.%coverartarchive.org%")
+  } else {
+    query = query.is("cover_url", null);
   }
 
-  // 2) Direct release search
-  const rel = await fetchJSON(`${MB_BASE}/release/?query=${encodeURIComponent(q)}&fmt=json`);
-  const releaseId2 = rel?.releases?.[0]?.id;
-  if (releaseId2) {
-    const head2 = await fetch(`${CAA_BASE}/release/${releaseId2}/front`, { method: "HEAD" });
-    if (head2.ok) return `${CAA_BASE}/release/${releaseId2}/front`;
-    const caaRel2 = await fetchJSON(`${CAA_BASE}/release/${releaseId2}`);
-    const frontRel2 = caaRel2?.images?.find(i => i.front)?.image;
-    if (frontRel2) return frontRel2;
-  }
-
-  return null;
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
 }
 
 async function main() {
-  // Pull rows missing cover_url (adjust limit as needed)
-  const { data: rows, error } = await supabase
-    .from("records")
-    .select("id,artist,album,cover_url")
-    .is("cover_url", null)
-    .limit(500);
+  console.log(`Starting cover repair for table '${TABLE}' (limit=${LIMIT}, includeLegacy=${INCLUDE_LEGACY}, dryRun=${DRY_RUN})`);
 
-  if (error) {
-    console.error("DB read error:", error.message);
-    process.exit(1);
+  const rows = await getCandidateRows();
+  if (rows.length === 0) {
+    console.log("No candidate rows found.");
+    return;
   }
 
-  for (const r of rows) {
-    try {
-      const image = await lookupCover(r.artist, r.album);
-      if (image) {
-        const { error: uerr } = await supabase
-          .from("records")
-          .update({ cover_url: image })
-          .eq("id", r.id);
-        if (uerr) console.error("Update failed:", r.id, uerr.message);
-        else console.log("✅", r.artist, "-", r.album);
-      } else {
-        console.log("⚠️ No cover found:", r.artist, "-", r.album);
-      }
-    } catch (e) {
-      console.log("❌ Error for", r.artist, "-", r.album, e.message);
+  let scanned = 0;
+  let updated = 0;
+  let unchanged = 0;
+  let unresolved = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    scanned += 1;
+    const artist = String(row.artist || "").trim();
+    const album = String(row.album || "").trim();
+
+    if (!artist || !album) {
+      unchanged += 1;
+      continue;
     }
-    // Be nice to MusicBrainz/CAA
-    await new Promise(res => setTimeout(res, 800));
+
+    try {
+      const { image, source } = await resolveCoverUrl({ artist, album });
+      if (!image) {
+        unresolved += 1;
+        console.log(`⚠️  [${scanned}/${rows.length}] no match: ${artist} - ${album}`);
+      } else if (image === row.cover_url) {
+        unchanged += 1;
+      } else if (DRY_RUN) {
+        updated += 1;
+        console.log(`🧪 [${scanned}/${rows.length}] would update (${source}): ${artist} - ${album}`);
+      } else {
+        const { error: updateError } = await supabase
+          .from(TABLE)
+          .update({ cover_url: image })
+          .eq("id", row.id);
+
+        if (updateError) {
+          failed += 1;
+          console.error(`❌ update failed for ${artist} - ${album}:`, updateError.message);
+        } else {
+          updated += 1;
+          console.log(`✅ [${scanned}/${rows.length}] updated (${source}): ${artist} - ${album}`);
+        }
+      }
+    } catch (err) {
+      failed += 1;
+      console.error(`❌ lookup failed for ${artist} - ${album}:`, err?.message || err);
+    }
+
+    if (DELAY_MS > 0) {
+      await sleep(DELAY_MS);
+    }
   }
-  console.log("Done.");
+
+  console.log("---");
+  console.log(`Done. scanned=${scanned} updated=${updated} unchanged=${unchanged} unresolved=${unresolved} failed=${failed}`);
 }
 
-main();
+main().catch((err) => {
+  console.error("Fatal error:", err?.message || err);
+  process.exit(1);
+});

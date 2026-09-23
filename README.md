@@ -49,7 +49,8 @@ Create `.env.local`:
 
 ```ini
 NEXT_PUBLIC_SUPABASE_URL=YOUR_SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=YOUR_SUPABASE_PUBLISHABLE_KEY
+SUPABASE_SECRET_KEY=YOUR_SUPABASE_SECRET_KEY
 ADMIN_EMAILS=you@example.com
 ```
 
@@ -156,7 +157,7 @@ Open **[http://localhost:3000](http://localhost:3000)** for the catalog and **/a
 
 ### Public catalog
 
-* `/` loads records from Supabase REST using the **anon** key (RLS limits data).
+* `/` loads records from Supabase REST using the **publishable** key (legacy anon key still supported).
 * The UI provides free‑text search across artist/album/year/notes, a favorites filter, and a large cover preview card.
 * Spotify link is either the stored `spotify_url` or a generated search link.
 
@@ -203,7 +204,8 @@ Open **[http://localhost:3000](http://localhost:3000)** for the catalog and **/a
 3. Add env vars in Vercel:
 
    * `NEXT_PUBLIC_SUPABASE_URL`
-   * `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  * `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+  * `SUPABASE_SECRET_KEY`
 4. Set Supabase Auth redirect for your production domain.
 5. Deploy.
 
@@ -211,9 +213,9 @@ Open **[http://localhost:3000](http://localhost:3000)** for the catalog and **/a
 
 ## 🔐 Security & privacy notes
 
-* Public pages use the **anon** key and are limited by **RLS** and **column grants**. `cost_cents` is not exposed to anonymous users.
+* Public pages use the **publishable** key and are limited by **RLS** and **column grants**. `cost_cents` is not exposed to anonymous users.
 * Admin actions occur under the **authenticated** role, but **RLS** still checks membership in `public.admins` for write access.
-* Never expose a **service‑role** key to the browser.
+* Never expose a **secret/service-role** key to the browser.
 
 ---
 
@@ -261,7 +263,7 @@ SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
 SPOTIFY_REDIRECT_URI=https://localhost:3000/api/spotify/callback # or your deployed URL
 
 # Required for server-side Supabase writes
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+SUPABASE_SECRET_KEY=your_supabase_secret_key
 ```
 
 Database: create a small table to persist tokens. Run this in Supabase SQL editor:
@@ -289,7 +291,7 @@ How it works (notes & assumptions):
 
 Security note & next steps:
 - Passing `userId` in `state` is a pragmatic approach for the current app; for production harden this by validating sessions server-side (e.g., using a signed one-time state token stored server-side) and do not accept raw user IDs from untrusted clients.
-- Keep `SUPABASE_SERVICE_ROLE_KEY` secret and only accessible to the server environment.
+- Keep `SUPABASE_SECRET_KEY` (or legacy `SUPABASE_SERVICE_ROLE_KEY`) secret and only accessible to the server environment.
 
 Try it locally:
 1. Add env vars above to `.env.local`.

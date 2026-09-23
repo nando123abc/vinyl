@@ -6,8 +6,11 @@ import { RECORDS_TABLE } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const publicKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const publicKey =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.SUPABASE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const url = `${supabaseUrl}/rest/v1/${RECORDS_TABLE}`;
   let warningMessage = "";
   const headers = {
@@ -34,7 +37,7 @@ export default async function DashboardPage() {
   let data = [];
 
   if (!supabaseUrl || !publicKey) {
-    console.error("[dashboard] Missing Supabase env vars. Check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.");
+    console.error("[dashboard] Missing Supabase env vars. Check NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL) and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (or NEXT_PUBLIC_SUPABASE_ANON_KEY).");
     warningMessage = "Dashboard data is temporarily unavailable: Supabase environment variables are missing.";
   } else {
     try {

@@ -14,9 +14,13 @@ const oswald = Oswald({ subsets: ["latin"], weight: "600" });
 
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const publicKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+export default async function Home({searchParams}) {
+  const sp = await searchParams;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const publicKey =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.SUPABASE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const url = `${supabaseUrl}/rest/v1/${RECORDS_TABLE}`;
   let warningMessage = "";
   const headers = {
@@ -46,7 +50,7 @@ export default async function Home() {
   let data = [];
 
   if (!supabaseUrl || !publicKey) {
-    console.error("[home] Missing Supabase env vars. Check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.");
+    console.error("[home] Missing Supabase env vars. Check NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL) and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (or NEXT_PUBLIC_SUPABASE_ANON_KEY).");
     warningMessage = "Catalog is temporarily unavailable: Supabase environment variables are missing.";
   } else {
     try {
@@ -77,6 +81,23 @@ export default async function Home() {
   }
 
   const records = Array.isArray(data) ? data : [];
+
+  const rawSort = typeof sp?.sort === "string" ? sp.sort : "artist-asc";
+  const initialControls = {
+    q: typeof sp?.q === "string" ? sp.q : "",
+    favs: sp?.favs === "1",
+    special: sp?.special === "1",
+    format: typeof sp?.format === "string" ? sp.format : "",
+    genre: typeof sp?.genre === "string" ? sp.genre : "",
+    sort:
+      rawSort === "artist"
+        ? "artist-asc"
+        : rawSort === "year"
+          ? "year-asc"
+          : ["artist-asc", "artist-desc", "year-asc", "year-desc", "recent"].includes(rawSort)
+            ? rawSort
+            : "artist-asc",
+  };
 
   const totalVinyls = records.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
 
@@ -136,7 +157,7 @@ export default async function Home() {
       </div>
 
       <div className="max-w-6xl mx-auto px-4 pb-8">
-        <Catalog initialRecords={records} />
+        <Catalog initialRecords={records} initialControls={initialControls} />
       </div>
     </main>
   );

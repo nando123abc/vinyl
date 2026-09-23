@@ -4,6 +4,14 @@ const nextConfig = {
     remotePatterns: [
       { protocol: 'https', hostname: 'coverartarchive.org' },
       { protocol: 'http',  hostname: 'coverartarchive.org' }, // if some URLs are http
+      { protocol: 'https', hostname: 'archive.org' },
+      { protocol: 'http',  hostname: 'archive.org' },
+      { protocol: 'https', hostname: 'i.scdn.co' },
+      { protocol: 'https', hostname: 'is1-ssl.mzstatic.com' },
+      { protocol: 'https', hostname: 'is2-ssl.mzstatic.com' },
+      { protocol: 'https', hostname: 'is3-ssl.mzstatic.com' },
+      { protocol: 'https', hostname: 'is4-ssl.mzstatic.com' },
+      { protocol: 'https', hostname: 'is5-ssl.mzstatic.com' },
     ],
   },
 };
