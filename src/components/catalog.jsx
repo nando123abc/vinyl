@@ -9,6 +9,7 @@ export default function Catalog({initialRecords = []}) {
   const [showFavs, setShowFavs] = useState(false);
   const [showSpecial, setShowSpecial] = useState(false);
   const [format, setFormat] = useState(""); // LP / EP / 7" / etc
+  const [genre, setGenre] = useState("");
   const [sort, setSort] = useState("artist-asc");
 
   // Selected large preview card
@@ -17,6 +18,11 @@ export default function Catalog({initialRecords = []}) {
   // Distinct formats for dropdown (kept if you want to re-enable later)
   const formats = useMemo(() => {
     const s = new Set(initialRecords.map((r) => (r.format || "").trim()).filter(Boolean));
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [initialRecords]);
+
+  const genres = useMemo(() => {
+    const s = new Set(initialRecords.map((r) => (r.genre || "").trim()).filter(Boolean));
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [initialRecords]);
 
@@ -35,6 +41,7 @@ export default function Catalog({initialRecords = []}) {
         : "artist-asc";
     setSort(normalized);
     setFormat(p.get("format") || "");
+    setGenre(p.get("genre") || "");
     setShowFavs(p.get("favs") === "1");
     setShowSpecial(p.get("special") === "1");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -46,13 +53,14 @@ export default function Catalog({initialRecords = []}) {
     if (query) p.set("q", query);
     if (sort !== "artist-asc") p.set("sort", sort);
     if (format) p.set("format", format);
+    if (genre) p.set("genre", genre);
     if (showFavs) p.set("favs", "1");
     if (showSpecial) p.set("special", "1");
     const next = `${location.pathname}${p.toString() ? `?${p.toString()}` : ""}`;
     if (next !== `${location.pathname}${location.search}`) {
       window.history.replaceState(null, "", next);
     }
-  }, [query, sort, format, showFavs, showSpecial]);
+  }, [query, sort, format, genre, showFavs, showSpecial]);
 
   // Text search match
   const matchesQuery = (r) => {
@@ -73,9 +81,10 @@ export default function Catalog({initialRecords = []}) {
       if (showFavs && !r.is_favorite) return false;
       if (showSpecial && !r.is_special) return false;
       if (format && r.format !== format) return false;
+      if (genre && (r.genre || "") !== genre) return false;
       return true;
     });
-  }, [initialRecords, query, showFavs, showSpecial, format]);
+  }, [initialRecords, query, showFavs, showSpecial, format, genre]);
 
   // Sorting
   const sorted = useMemo(() => {
@@ -232,6 +241,25 @@ export default function Catalog({initialRecords = []}) {
                     <option value="recent">Recently Added</option>
                   </select>
                 </label>
+
+                {genres.length > 0 ? (
+                  <label className="flex-1 min-w-0">
+                    <span className="sr-only">Genre</span>
+                    <select
+                      value={genre}
+                      onChange={(e) => setGenre(e.target.value)}
+                      className="w-full border px-3 py-2 rounded-xl text-sm"
+                      aria-label="Filter by genre"
+                    >
+                      <option value="">All genres</option>
+                      {genres.map((g) => (
+                        <option key={g} value={g}>
+                          {g}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
 
                 {/* Compact icon buttons on mobile; pill buttons on md+ */}
                 <button

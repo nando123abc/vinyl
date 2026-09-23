@@ -3,6 +3,7 @@ import Catalog from "@/components/catalog";
 import {ChartArea, Music, LogIn} from "lucide-react";
 import Image from "next/image"; // ⬅️ add this
 import Link from "next/link";
+import { RECORDS_TABLE } from "@/lib/db";
 
 // page.js (top of file)
 import { Bebas_Neue, Oswald } from "next/font/google";
@@ -14,7 +15,18 @@ const oswald = Oswald({ subsets: ["latin"], weight: "600" });
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/records`;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const publicKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  const url = `${supabaseUrl}/rest/v1/${RECORDS_TABLE}`;
+  let warningMessage = "";
+  const headers = {
+    apikey: publicKey,
+  };
+
+  // Publishable keys are not JWTs; only send Bearer when the key is JWT-like.
+  if (publicKey?.startsWith("eyJ")) {
+    headers.Authorization = `Bearer ${publicKey}`;
+  }
   const columns = [
     "id",
     "artist",
@@ -31,22 +43,56 @@ export default async function Home() {
     "created_at",
     "updated_at",
   ].join(",");
+  let data = [];
 
-  const res = await fetch(`${url}?select=${columns}&order=artist.asc`, {
-    headers: {
-      apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
-    },
-    cache: "no-store",
-  });
+  if (!supabaseUrl || !publicKey) {
+    console.error("[home] Missing Supabase env vars. Check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY.");
+    warningMessage = "Catalog is temporarily unavailable: Supabase environment variables are missing.";
+  } else {
+    try {
+      const res = await fetch(`${url}?select=${columns}&order=artist.asc`, {
+        headers,
+        cache: "no-store",
+      });
 
-  const data = await res.json();
+      if (!res.ok) {
+        let apiMessage = "";
+        try {
+          const errJson = await res.json();
+          apiMessage = errJson?.message || "";
+        } catch {
+          apiMessage = "";
+        }
+        console.error("[home] Supabase REST request failed", res.status, res.statusText, apiMessage);
+        warningMessage = apiMessage
+          ? `Catalog is temporarily unavailable: ${apiMessage}`
+          : `Catalog is temporarily unavailable: Supabase API returned ${res.status}.`;
+      } else {
+        data = await res.json();
+      }
+    } catch (err) {
+      console.error("[home] Failed to reach Supabase", err);
+      warningMessage = "Catalog is temporarily unavailable: unable to reach Supabase.";
+    }
+  }
+
   const records = Array.isArray(data) ? data : [];
 
   const totalVinyls = records.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
 
   return (
     <main>
+      {warningMessage ? (
+        <div className="max-w-6xl mx-auto px-4 pt-4">
+          <div
+            role="alert"
+            className="rounded-xl border border-amber-300 bg-amber-50 text-amber-900 px-4 py-3 text-sm"
+          >
+            {warningMessage}
+          </div>
+        </div>
+      ) : null}
+
       {/* Simple header with total + dashboard link */}
       <div className="max-w-6xl mx-auto px-4 pt-6 pb-8 flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
         <div className="flex items-center gap-2">

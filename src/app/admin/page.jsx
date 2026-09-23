@@ -1,13 +1,19 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { supabaseBrowser } from "@/lib/supabase";
+import { RECORDS_TABLE } from "@/lib/db";
 
 export default function AdminPage() {
   const supabase = useMemo(() => supabaseBrowser(), []);
   const [session, setSession] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
+  const [uiMessage, setUiMessage] = useState({ type: "", text: "" });
+  const [listQuery, setListQuery] = useState("");
+  const [listGenre, setListGenre] = useState("");
   const [form, setForm] = useState({
     id: "",
     artist: "",
@@ -32,10 +38,13 @@ export default function AdminPage() {
     const { data: sub } = supabase.auth.onAuthStateChange((_evt, s) => {
       if (!mounted) return;
       setSession(s);
-      if (s) fetchRecords(); // fetch after login
+      if (s) {
+        verifyAdminAndLoad(s);
+      }
       else {
         setRecords([]);
         setLoadError("");
+        setIsAdmin(false);
       }
     });
 
@@ -44,7 +53,7 @@ export default function AdminPage() {
       const { data: { session: s } = {} } = await supabase.auth.getSession();
       if (!mounted) return;
       setSession(s);
-      if (s) fetchRecords();
+      if (s) verifyAdminAndLoad(s);
     })();
 
     return () => {
@@ -54,6 +63,39 @@ export default function AdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supabase]);
 
+  async function verifyAdminAndLoad(currSession) {
+    const email = currSession?.user?.email;
+    if (!email) {
+      setIsAdmin(false);
+      setRecords([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("admins")
+      .select("email")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (error) {
+      setIsAdmin(false);
+      setRecords([]);
+      setUiMessage({ type: "error", text: error.message || "Failed to verify admin access." });
+      return;
+    }
+
+    if (!data) {
+      setIsAdmin(false);
+      setRecords([]);
+      setUiMessage({ type: "error", text: "This account is authenticated but not in the admin allowlist." });
+      return;
+    }
+
+    setIsAdmin(true);
+    setUiMessage({ type: "success", text: "Signed in as admin." });
+    await fetchRecords();
+  }
+
   async function fetchRecords() {
     setLoading(true);
     setLoadError("");
@@ -61,7 +103,7 @@ export default function AdminPage() {
     // Otherwise, list the columns you need explicitly:
     // .select("id,artist,album,year,quantity,cost_cents,format,notes,is_special,is_favorite,genre,spotify_url,cover_url,created_at,updated_at")
     const { data, error } = await supabase
-      .from("records")
+      .from(RECORDS_TABLE)
       .select("*")
       .order("updated_at", { ascending: false });
 
@@ -76,15 +118,74 @@ export default function AdminPage() {
 
   const isAuthed = !!session?.user?.email;
 
+  const adminGenres = useMemo(() => {
+    const set = new Set(records.map((r) => (r.genre || "").trim()).filter(Boolean));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [records]);
+
+  const filteredRecords = useMemo(() => {
+    const q = listQuery.trim().toLowerCase();
+    return records.filter((r) => {
+      if (listGenre && (r.genre || "") !== listGenre) return false;
+      if (!q) return true;
+      return (
+        (r.artist || "").toLowerCase().includes(q) ||
+        (r.album || "").toLowerCase().includes(q) ||
+        (r.notes || "").toLowerCase().includes(q) ||
+        String(r.year || "").includes(q)
+      );
+    });
+  }, [records, listQuery, listGenre]);
+
+  const adminStats = useMemo(() => {
+    const totalItems = records.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
+    const uniqueArtists = new Set(records.map((r) => r.artist).filter(Boolean)).size;
+    const favorites = records.filter((r) => r.is_favorite).length;
+    const specials = records.filter((r) => r.is_special).length;
+
+    let costCount = 0;
+    let totalCostCents = 0;
+    for (const r of records) {
+      if (r.cost_cents == null || r.cost_cents === "") continue;
+      const unit = Number(r.cost_cents) || 0;
+      const qty = Math.max(1, Number(r.quantity) || 1);
+      totalCostCents += unit * qty;
+      costCount += qty;
+    }
+
+    const genreMap = new Map();
+    for (const r of records) {
+      const g = (r.genre || "Unknown").trim() || "Unknown";
+      genreMap.set(g, (genreMap.get(g) || 0) + (Number(r.quantity) || 0));
+    }
+    const topGenreEntry = Array.from(genreMap.entries()).sort((a, b) => b[1] - a[1])[0];
+
+    return {
+      totalItems,
+      uniqueArtists,
+      favorites,
+      specials,
+      totalSpentUSD: (totalCostCents / 100).toFixed(2),
+      avgCostUSD: costCount > 0 ? (totalCostCents / costCount / 100).toFixed(2) : null,
+      topGenre: topGenreEntry ? `${topGenreEntry[0]} (${topGenreEntry[1]})` : "—",
+    };
+  }, [records]);
+
   async function onLogin() {
-    const email = prompt("Enter your admin email");
-    if (!email) return;
+    const email = authEmail.trim();
+    if (!email) {
+      setUiMessage({ type: "error", text: "Enter your admin email first." });
+      return;
+    }
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: { emailRedirectTo: window.location.origin + "/admin" },
     });
-    if (error) alert(error.message);
-    else alert("Check your email for the sign-in link.");
+    if (error) setUiMessage({ type: "error", text: error.message });
+    else {
+      setUiMessage({ type: "success", text: "Check your email for the sign-in link." });
+      setAuthEmail("");
+    }
   }
 
   async function onLogout() {
@@ -92,23 +193,25 @@ export default function AdminPage() {
     // clear local UI
     setRecords([]);
     setForm((f) => ({ ...f, id: "" }));
+    setIsAdmin(false);
+    setUiMessage({ type: "", text: "" });
   }
 
   async function onFetchCover() {
     const artist = form.artist?.trim();
     const album = form.album?.trim();
     if (!artist || !album) {
-      alert("Please enter Artist and Album first.");
+      setUiMessage({ type: "error", text: "Please enter Artist and Album first." });
       return;
     }
     try {
       const res = await fetch(`/api/cover?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}`);
       const { image } = await res.json();
       if (image) setForm((f) => ({ ...f, cover_url: image }));
-      else alert("No cover art found for that artist/album.");
+      else setUiMessage({ type: "error", text: "No cover art found for that artist/album." });
     } catch (e) {
       console.error(e);
-      alert("Cover lookup failed. Try again.");
+      setUiMessage({ type: "error", text: "Cover lookup failed. Try again." });
     }
   }
 
@@ -131,21 +234,22 @@ export default function AdminPage() {
 
     if (form.id) {
       // Update (don’t send id in body)
-      const { error } = await supabase.from("records").update(payload).eq("id", form.id);
-      if (error) return alert(error.message);
+      const { error } = await supabase.from(RECORDS_TABLE).update(payload).eq("id", form.id);
+      if (error) return setUiMessage({ type: "error", text: error.message });
     } else {
-      const { error } = await supabase.from("records").insert(payload);
-      if (error) return alert(error.message);
+      const { error } = await supabase.from(RECORDS_TABLE).insert(payload);
+      if (error) return setUiMessage({ type: "error", text: error.message });
     }
     await fetchRecords();
-    alert("Saved");
+    setUiMessage({ type: "success", text: "Saved." });
   }
 
   async function onDelete() {
     if (!form.id) return;
-    if (!confirm("Delete this record?")) return;
-    const { error } = await supabase.from("records").delete().eq("id", form.id);
-    if (error) return alert(error.message);
+    const confirmed = window.confirm("Delete this record?");
+    if (!confirmed) return;
+    const { error } = await supabase.from(RECORDS_TABLE).delete().eq("id", form.id);
+    if (error) return setUiMessage({ type: "error", text: error.message });
     await fetchRecords();
     setForm((f) => ({
       ...f,
@@ -163,7 +267,7 @@ export default function AdminPage() {
       spotify_url: "",
       cover_url: "",
     }));
-    alert("Deleted");
+    setUiMessage({ type: "success", text: "Deleted." });
   }
 
   return (
@@ -185,13 +289,77 @@ export default function AdminPage() {
       </div>
 
       {!isAuthed && (
-        <p className="text-sm text-neutral-600">
-          Sign in with your admin email to manage records.
-        </p>
+        <div className="p-4 border rounded-2xl bg-spotify-gray space-y-3">
+          <p className="text-sm text-neutral-700">
+            Sign in with your admin email to manage records.
+          </p>
+          <div className="flex gap-2 max-w-lg">
+            <input
+              type="email"
+              className="flex-1 border rounded-xl px-3 py-2"
+              placeholder="you@example.com"
+              value={authEmail}
+              onChange={(e) => setAuthEmail(e.target.value)}
+            />
+            <button className="px-3 py-2 border rounded-xl" onClick={onLogin}>
+              Send magic link
+            </button>
+          </div>
+        </div>
       )}
 
-      {isAuthed && (
-        <div className="grid md:grid-cols-2 gap-6">
+      {!!uiMessage.text && (
+        <div
+          className={[
+            "rounded-xl border px-4 py-3 text-sm",
+            uiMessage.type === "error"
+              ? "border-red-300 bg-red-50 text-red-800"
+              : "border-emerald-300 bg-emerald-50 text-emerald-800",
+          ].join(" ")}
+        >
+          {uiMessage.text}
+        </div>
+      )}
+
+      {isAuthed && !isAdmin && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 text-amber-900 px-4 py-3 text-sm">
+          Signed in, but this email is not in the admin allowlist. Add it to the <b>admins</b> table to enable management access.
+        </div>
+      )}
+
+      {isAuthed && isAdmin && (
+        <div className="space-y-6">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="p-3 border rounded-xl bg-spotify-gray">
+              <div className="text-xs text-neutral-600">Total vinyls</div>
+              <div className="text-xl font-semibold">{adminStats.totalItems}</div>
+            </div>
+            <div className="p-3 border rounded-xl bg-spotify-gray">
+              <div className="text-xs text-neutral-600">Unique artists</div>
+              <div className="text-xl font-semibold">{adminStats.uniqueArtists}</div>
+            </div>
+            <div className="p-3 border rounded-xl bg-spotify-gray">
+              <div className="text-xs text-neutral-600">Favorites · Specials</div>
+              <div className="text-xl font-semibold">{adminStats.favorites} · {adminStats.specials}</div>
+            </div>
+            <div className="p-3 border rounded-xl bg-spotify-gray">
+              <div className="text-xs text-neutral-600">Top genre</div>
+              <div className="text-sm font-semibold truncate">{adminStats.topGenre}</div>
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div className="p-3 border rounded-xl bg-spotify-gray">
+              <div className="text-xs text-neutral-600">Total spend (tracked)</div>
+              <div className="text-xl font-semibold">${adminStats.totalSpentUSD}</div>
+            </div>
+            <div className="p-3 border rounded-xl bg-spotify-gray">
+              <div className="text-xs text-neutral-600">Average cost per record</div>
+              <div className="text-xl font-semibold">{adminStats.avgCostUSD ? `$${adminStats.avgCostUSD}` : "—"}</div>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6">
           {/* Form */}
           <div className="p-4 border rounded-2xl bg-spotify-gray">
             <form onSubmit={onSubmit} className="space-y-3">
@@ -361,14 +529,35 @@ export default function AdminPage() {
 
           {/* List */}
           <div className="p-4 border rounded-2xl bg-spotify-gray max-h-[70vh] overflow-auto">
+            <div className="mb-3 grid gap-2 sm:grid-cols-2">
+              <input
+                className="border rounded-xl px-3 py-2 text-sm"
+                placeholder="Search records..."
+                value={listQuery}
+                onChange={(e) => setListQuery(e.target.value)}
+              />
+              <select
+                className="border rounded-xl px-3 py-2 text-sm"
+                value={listGenre}
+                onChange={(e) => setListGenre(e.target.value)}
+              >
+                <option value="">All genres</option>
+                {adminGenres.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {loading ? (
               <div className="text-sm text-neutral-500">Loading…</div>
             ) : loadError ? (
               <div className="text-sm text-red-600">Error: {loadError}</div>
-            ) : records.length === 0 ? (
+            ) : filteredRecords.length === 0 ? (
               <div className="text-sm text-neutral-500">No records.</div>
             ) : (
-              records.map((r) => (
+              filteredRecords.map((r) => (
                 <button
                   key={r.id}
                   onClick={() =>
@@ -404,6 +593,7 @@ export default function AdminPage() {
               ))
             )}
           </div>
+        </div>
         </div>
       )}
     </div>

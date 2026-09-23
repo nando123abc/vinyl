@@ -1,10 +1,11 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
   PieChart, Pie, LineChart, Line
 } from "recharts";
 import { supabaseBrowser } from "@/lib/supabase";
+import { RECORDS_TABLE } from "@/lib/db";
 
 export default function Dashboard({ initialRecords = [] }) {
   const [records, setRecords] = useState(initialRecords);
@@ -15,7 +16,7 @@ export default function Dashboard({ initialRecords = [] }) {
 
     async function refresh() {
       const { data, error } = await supabase
-        .from("records")
+        .from(RECORDS_TABLE)
         .select("id,artist,album,year,quantity,format,is_special,is_favorite,created_at,updated_at,genre")
         .order("created_at", { ascending: false })
         .limit(5000);
@@ -23,8 +24,8 @@ export default function Dashboard({ initialRecords = [] }) {
     }
 
     const channel = supabase
-      .channel("records-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "records" }, refresh)
+      .channel(`${RECORDS_TABLE}-changes`)
+      .on("postgres_changes", { event: "*", schema: "public", table: RECORDS_TABLE }, refresh)
       .subscribe();
 
     // First paint refresh (ensures client & server in sync)
@@ -149,7 +150,7 @@ export default function Dashboard({ initialRecords = [] }) {
       const { data: { session } = { session: null } } = await supabase.auth.getSession();
       if (!session) return;
       const { data, error } = await supabase
-        .from("records")
+        .from(RECORDS_TABLE)
         .select("cost_cents,quantity")
         .not("cost_cents","is", null)
         .limit(5000);
@@ -183,6 +184,11 @@ export default function Dashboard({ initialRecords = [] }) {
           <StatCard label="Avg cost per record" value={`$${spend.avgUSD}`} />
         </div>
       ) : null}
+
+      {/* Spotify personal section */}
+      <Panel title="Your Spotify (personal)">
+        <SpotifyPanel />
+      </Panel>
 
       {/* Insights */}
       <Panel title="Quick insights">
@@ -276,6 +282,194 @@ function Panel({ title, children }) {
     <div className="p-4 border rounded-2xl bg-spotify-gray">
       <div className="font-medium mb-3">{title}</div>
       {children}
+    </div>
+  );
+}
+
+function SpotifyPanel() {
+  const [loading, setLoading] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [data, setData] = useState(null);
+  const [status, setStatus] = useState("");
+  const [busyConnect, setBusyConnect] = useState(false);
+  const popupRef = useRef(null);
+
+  async function getUserId() {
+    const supabase = supabaseBrowser();
+    const { data: sessionData } = await supabase.auth.getSession();
+    return sessionData?.session?.user?.id || null;
+  }
+
+  async function openConnect() {
+    setBusyConnect(true);
+    setStatus("");
+    const userId = await getUserId();
+    if (!userId) {
+      setStatus('Please sign in first.');
+      setBusyConnect(false);
+      return;
+    }
+
+    let url = `/api/spotify/login?userId=${encodeURIComponent(userId)}`;
+    // Prefer short-lived state tokens; fallback to legacy userId-based state if unavailable.
+    try {
+      const stateRes = await fetch('/api/spotify/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      if (stateRes.ok) {
+        const stateJson = await stateRes.json();
+        if (stateJson?.token) {
+          url = `/api/spotify/login?stateToken=${encodeURIComponent(stateJson.token)}`;
+        }
+      }
+    } catch {
+      // ignore and fallback
+    }
+
+    popupRef.current = window.open(url, 'spotify_connect', 'width=600,height=800');
+    setStatus('Spotify authorization window opened. Approve access there and this panel will refresh automatically.');
+    setBusyConnect(false);
+  }
+
+  async function fetchSpotify() {
+    setLoading(true);
+    setStatus("");
+    try {
+      const userId = await getUserId();
+      if (!userId) {
+        setStatus('Please sign in first.');
+        setLoading(false);
+        return;
+      }
+      const res = await fetch(`/api/spotify/data?userId=${encodeURIComponent(userId)}`);
+      if (!res.ok) {
+        const txt = await res.text();
+        console.error('spotify fetch error', txt);
+        setData(null);
+        setConnected(false);
+        setStatus('Could not load Spotify data yet. Connect Spotify first, then refresh.');
+      } else {
+        const json = await res.json();
+        setData(json);
+        setConnected(true);
+        setStatus('Spotify data refreshed.');
+      }
+    } catch (err) {
+      console.error(err);
+      setData(null);
+      setConnected(false);
+      setStatus('Spotify request failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    (async () => {
+      const id = await getUserId();
+      if (!id) return;
+      fetchSpotify();
+    })();
+  }, []);
+
+  useEffect(() => {
+    function onMessage(event) {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== 'spotify_connected') return;
+      fetchSpotify();
+    }
+
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-3">
+        <button className="btn" onClick={openConnect} disabled={busyConnect || loading}>
+          {busyConnect ? 'Opening...' : 'Connect Spotify'}
+        </button>
+        <button className="btn" onClick={fetchSpotify} disabled={loading || busyConnect}>{loading ? 'Loading...' : 'Refresh'}</button>
+        <div className="text-sm text-neutral-600">{connected ? 'Connected' : 'Not connected'}</div>
+      </div>
+
+      {status ? <div className="text-sm text-neutral-600">{status}</div> : null}
+
+      {data ? (
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div>
+            <div className="font-medium">Currently playing</div>
+            {data.currently_playing && data.currently_playing.item ? (
+              <div className="mt-2">
+                <div className="font-semibold">{data.currently_playing.item.name}</div>
+                <div className="text-sm text-neutral-600">{(data.currently_playing.item.artists || []).map(a => a.name).join(', ')}</div>
+                {data.currently_playing.item.preview_url ? (
+                  <audio controls src={data.currently_playing.item.preview_url} className="mt-2 w-full" />
+                ) : (
+                  <div className="text-sm text-neutral-500 mt-2">No preview available</div>
+                )}
+              </div>
+            ) : (
+              <div className="text-sm text-neutral-500 mt-2">Nothing playing or no permission.</div>
+            )}
+          </div>
+
+          <div>
+            <div className="font-medium">Top 5 Artists</div>
+            <ol className="list-decimal pl-5 mt-2 text-sm">
+              {(data.top_artists || []).map(a => (
+                <li key={a.id} className="py-1">
+                  <div className="font-medium">{a.name}</div>
+                  <div className="text-neutral-500 text-sm">{a.genres?.slice(0,2).join(', ')}</div>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          <div>
+            <div className="font-medium">Top 5 Albums</div>
+            <ol className="list-decimal pl-5 mt-2 text-sm">
+              {(data.top_albums || []).map(a => (
+                <li key={a.id} className="py-1">
+                  <div className="font-medium">{a.name}</div>
+                  <div className="text-neutral-500 text-sm">{(a.artists || []).map(x => x.name).join(', ')}</div>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          <div>
+            <div className="font-medium">Top 5 Tracks</div>
+            <ol className="list-decimal pl-5 mt-2 text-sm">
+              {(data.top_tracks || []).map(t => (
+                <li key={t.id} className="py-1">
+                  <div className="font-medium">{t.name}</div>
+                  <div className="text-neutral-500 text-sm">{(t.artists || []).map(x => x.name).join(', ')}</div>
+                </li>
+              ))}
+            </ol>
+          </div>
+
+          <div>
+            <div className="font-medium">Monthly listening (last 12 months)</div>
+            <div className="mt-2" style={{ width: '100%', height: 160 }}>
+              <ResponsiveContainer width="100%" height={160}>
+                <LineChart data={data.monthly_listening || []} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                  <YAxis allowDecimals={false} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="count" stroke="var(--color-accent-color)" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="text-sm text-neutral-500">No Spotify data. Connect and refresh to load.</div>
+      )}
     </div>
   );
 }

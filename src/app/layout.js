@@ -16,10 +16,6 @@ const geistMono = Geist_Mono({
 export const metadata = {
   title: "Vinyl Vault",
   description: "A personal vinyl collection database",
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#0a0a0a" },
-    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
-  ],
   appleWebApp: {
     capable: true,
     // 'black' | 'default' | 'black-translucent'
@@ -30,6 +26,10 @@ export const metadata = {
 export const viewport = {
   width: "device-width",
   initialScale: 1,
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#0a0a0a" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
+  ],
   viewportFit: "cover", // enable safe-area env() on iOS
 };
 

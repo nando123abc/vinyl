@@ -240,3 +240,61 @@ Open **[http://localhost:3000](http://localhost:3000)** for the catalog and **/a
 ## 📄 License
 
 MIT — do as you wish, attribution appreciated.
+
+---
+
+## 🟢 Spotify integration (added)
+
+This project now includes a lightweight Spotify integration to show your "Currently playing", your top 5 artists/albums/tracks, and a simple monthly listening breakdown based on recent plays.
+
+What I added:
+- Server helpers: `src/lib/supabaseServer.js` (requires a Supabase service role key)
+- OAuth routes: `/api/spotify/login` and `/api/spotify/callback` to perform the OAuth flow
+- Data route: `/api/spotify/data?userId=...` to fetch Spotify data (server-side) and refresh tokens when needed
+- UI: small personal Spotify panel in `src/components/dashboard.jsx`
+
+Environment variables to set in `.env.local` or your platform:
+
+```ini
+SPOTIFY_CLIENT_ID=your_spotify_client_id
+SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
+SPOTIFY_REDIRECT_URI=https://localhost:3000/api/spotify/callback # or your deployed URL
+
+# Required for server-side Supabase writes
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+```
+
+Database: create a small table to persist tokens. Run this in Supabase SQL editor:
+
+```sql
+create table if not exists public.spotify_tokens (
+  user_id text primary key,
+  access_token text,
+  refresh_token text,
+  expires_at int8
+);
+
+-- Optional: table to store short-lived oauth state tokens
+create table if not exists public.spotify_states (
+  token text primary key,
+  user_id text not null,
+  expires_at int8 not null
+);
+```
+
+How it works (notes & assumptions):
+- The frontend opens `/api/spotify/login?userId=<your-supabase-user-id>` which redirects to Spotify's auth dialog. The `state` parameter carries your user id so the callback knows which user to attach tokens to.
+- After authorizing, Spotify redirects to `/api/spotify/callback` which exchanges the code for tokens and persists them into `spotify_tokens`.
+- `/api/spotify/data?userId=...` reads tokens from `spotify_tokens`, refreshes if necessary, and fetches Spotify endpoints server-side.
+
+Security note & next steps:
+- Passing `userId` in `state` is a pragmatic approach for the current app; for production harden this by validating sessions server-side (e.g., using a signed one-time state token stored server-side) and do not accept raw user IDs from untrusted clients.
+- Keep `SUPABASE_SERVICE_ROLE_KEY` secret and only accessible to the server environment.
+
+Try it locally:
+1. Add env vars above to `.env.local`.
+2. Create the `spotify_tokens` table in Supabase.
+3. Sign into the app (`/admin`) to get a Supabase user id.
+4. Open the dashboard, click "Connect Spotify", follow the auth flow, then click "Refresh" in the Spotify panel to load your data.
+
+If you want, I can now tighten the server-side authentication (tie the callback/login flow to the user's Supabase session cookie rather than passing `userId`), add a prettier chart for monthly listening, or add unit tests for the new routes.
